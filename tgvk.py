@@ -47,7 +47,7 @@ async def command_start_handler(message: Message) -> None:
 @dp.message(Command("login"))
 async def command_start_handler(message: Message, command: CommandObject) -> None:
     if command.args is None:
-        await message.answer("Use \n/login _login_ _password_\nso I can steal your cookies and report you to the government https://vkhost.github.io/")
+        await message.answer("Use \n/login _login_ _password_\nso I can steal your cookies and report you to the government")
         return
     if str(message.from_user.id) not in data:
         data[str(message.from_user.id)] = {}
