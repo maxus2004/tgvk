@@ -7,35 +7,26 @@ import json
 import random
 import os
 from threading import Thread
+import time
 
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 
-from aiogram import Bot, Dispatcher, html
+from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, ForceReply
 
-data = {
-
-}
-
-sessions = {}
-bot = None
 
 load_dotenv()
 TOKEN = getenv("tg_token")
 
-def captcha_handler(captcha):
-    key = input("Enter captcha code {0}: ".format(captcha.get_url())).strip()
-
-    return captcha.try_again(key)
-
-def auth_handler():
-    key = input("Enter authentication code: ")
-    remember_device = True
-    return key, remember_device
+data = {}
+sessions = {}
+bot = None
+captcha_answer = None
+auth_answer = None
 
 dp = Dispatcher()
 
@@ -54,9 +45,7 @@ async def command_start_handler(message: Message, command: CommandObject) -> Non
     data[str(message.from_user.id)]["vk_login"] = command.args.split(" ", maxsplit=1)[0]
     data[str(message.from_user.id)]["vk_password"] = command.args.split(" ", maxsplit=1)[1]
     json.dump(data,open("data.json","w"))
-    sessions[str(message.from_user.id)] = vk_api.VkApi(data[str(message.from_user.id)]["vk_login"], data[str(message.from_user.id)]["vk_password"], captcha_handler=captcha_handler, auth_handler=auth_handler, scope=4096, app_id=2685278)
-    sessions[str(message.from_user.id)].auth()
-    Thread(target=longpoll, args=[sessions[str(message.from_user.id)]]).start()
+    Thread(target=login_and_start_longpoll,args=[str(message.from_user.id)]).start() 
     await message.answer("You System32 was deleted lmao\nNow you can use /link to link a vk chat with a telegram chat")
 
 @dp.message(Command("link"))
@@ -72,6 +61,13 @@ async def command_start_handler(message: Message, command: CommandObject) -> Non
     json.dump(data,open("data.json","w"))
     await message.answer("Linked successfully")
 
+@dp.message(F.reply_to_message)
+async def reply_handler(message: Message):
+    global captcha_answer, auth_answer
+    if message.reply_to_message.text.startswith("Бля ты походу бот, реши капчу:"):
+        captcha_answer = message.text
+    elif message.reply_to_message.text.startswith("Напиши код двухфакторной аутентификации в ответе на это сообщение."):
+        auth_answer = message.text
 
 @dp.message()
 async def message_handler(message: Message) -> None:
@@ -87,6 +83,31 @@ async def message_handler(message: Message) -> None:
     api = sessions[str(message.from_user.id)].get_api()
     api.messages.send(peer_id=data[str(message.from_user.id)]["chats"][str(message.chat.id)], message=message.text, random_id=random.randint(-2**31, 2**31 - 1),v="5.199")
 
+
+def captcha_handler(captcha,user_id):
+    global captcha_answer
+    asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, reply_markup=ForceReply(selective=True), text=f"Бля ты походу бот, реши капчу: {captcha.get_url()}\Решение напиши в ответе на это сообщение"), loop)
+    while(captcha_answer == None):
+        time.sleep(1)
+    print("Got captcha solution!")
+    key = captcha_answer
+    captcha_answer = None
+    return captcha.try_again(key)
+
+def auth_handler(user_id):
+    global auth_answer
+    asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=user_id, reply_markup=ForceReply(selective=True), text=f"Напиши код двухфакторной аутентификации в ответе на это сообщение. Возможно тебе говорили не передавать коды другим людям, но я не человек, мне коды кидать можно)"), loop)
+    while(auth_answer == None):
+        time.sleep(1)
+    print("Got auth code!")
+    key = auth_answer
+    auth_answer = None
+    return key, True
+
+def login_and_start_longpoll(userid):
+    sessions[userid] = vk_api.VkApi(data[userid]["vk_login"], data[userid]["vk_password"], captcha_handler=lambda captcha:captcha_handler(captcha,userid), auth_handler=lambda:auth_handler(userid), scope=4096, app_id=2685278)
+    sessions[userid].auth()
+    longpoll(sessions[userid])
 
 def longpoll(vk_session: vk_api.VkApi):
     print(vk_session)
@@ -108,7 +129,7 @@ def longpoll(vk_session: vk_api.VkApi):
                 print('группы', event.group_id, end='')
             print(', текст: ', event.text)
 
-            if event.from_me:
+            if event.to_me:
                 for uid in data:
                     for chat in data[uid]["chats"]:
                         if data[uid]["chats"][chat]==str(2000000000+int(event.chat_id)):
@@ -123,9 +144,7 @@ async def main() -> None:
     if os.path.isfile("data.json"):
         data = json.load(open("data.json"))
         for user in data:
-            sessions[str(user)] = vk_api.VkApi(data[str(user)]["vk_login"], data[str(user)]["vk_password"], captcha_handler=captcha_handler, auth_handler=auth_handler, app_id=2685278)
-            sessions[str(user)].auth()
-            Thread(target=longpoll, args=[sessions[str(user)]]).start()
+            Thread(target=login_and_start_longpoll,args=[str(user)]).start() 
 
     bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     loop = asyncio.get_event_loop()
