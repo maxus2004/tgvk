@@ -113,7 +113,7 @@ def longpoll(vk_session: vk_api.VkApi):
                     for chat in data[uid]["chats"]:
                         if data[uid]["chats"][chat]==str(2000000000+int(event.chat_id)):
                             users_get_result = vk_session.get_api().users.get(user_ids=event.user_id)[0]
-                            name = f"[{users_get_result["first_name"]} {users_get_result["last_name"]}](https://vk.com/id{event.user_id})\n"
+                            name = f'[{users_get_result["first_name"]} {users_get_result["last_name"]}](https://vk.com/id{event.user_id})\n'
                             text = name+""+event.text
                             asyncio.run_coroutine_threadsafe(bot.send_message(chat_id=chat, text=text), loop)
                             
